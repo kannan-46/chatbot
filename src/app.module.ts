@@ -5,6 +5,8 @@ import { GeminiModule } from './gemini/gemini.module';
 import { DynamoModule } from './dynamo/dynamo.module';
 // import { WikiModule } from './wiki/wiki.module';
 import { UserModule } from './user/user.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { GptsModule } from './gpts/gpts.module';
 
 @Module({
   imports: [
@@ -12,9 +14,10 @@ import { UserModule } from './user/user.module';
     ChatModule,
     GeminiModule,
     DynamoModule,
-    // WikiModule,
     UserModule,
+    CloudinaryModule,
+    GptsModule,
   ],
-  providers: [],
+  providers: [CloudinaryModule],
 })
 export class AppModule {}

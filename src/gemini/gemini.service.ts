@@ -1,59 +1,102 @@
-import {  Injectable } from "@nestjs/common";
-import { GoogleGenerativeAI,Content,Tool,GoogleSearchRetrieval } from "@google/generative-ai";
-import { DynamoService } from "src/dynamo/dynamo.service";
+import { Injectable } from '@nestjs/common';
+import {
+  GoogleGenerativeAI,
+  Content,
+  Tool,
+  GoogleSearchRetrieval,
+} from '@google/generative-ai';
+import { GoogleGenAI, GeneratedImage } from '@google/genai';
+import { DynamoService } from 'src/dynamo/dynamo.service';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 
 @Injectable()
-export class GeminiService{
-  private readonly genAi:GoogleGenerativeAI
+export class GeminiService {
+  private readonly genAi: GoogleGenerativeAI;
+  private readonly imgAi: GoogleGenAI;
 
-  constructor(private readonly client:DynamoService){
-    this.genAi=new GoogleGenerativeAI(process.env.GEMINI_API!)
+  constructor(
+    private readonly client: DynamoService,
+    private readonly cloudinary: CloudinaryService,
+  ) {
+    this.genAi = new GoogleGenerativeAI(process.env.GEMINI_API!);
+    this.imgAi = new GoogleGenAI({ apiKey: process.env.GEMINI_API! });
   }
+
   async *generateTextStream(
-    prompt:string,
-    history:Content[],
-    modelName:string,
-    temperature:number,
-    userId:string,
-    webSearch:boolean
-  ):AsyncGenerator<string>{
+    prompt: string,
+    history: Content[],
+    modelName: string,
+    temperature: number,
+    userId: string,
+    webSearch: boolean,
+    systemInstructionOverride?: string, 
+  ): AsyncGenerator<string> {
     try {
-      const userProfile=await this.client.getUserProfile(userId)
-            let systemInstruction = `You are a friendly and helpful AI assistant named "Kannan's AI".
-IMPORTANT: Your responses must be brief and concise. Use markdown for formatting (like **bold** for emphasis or bullet points).`;
-
-      if (userProfile) {
-        const nameLine = userProfile.name ? `- The user's name is "${userProfile.name}".` : '';
-        const aboutLine = userProfile.about ? `- About the user: "${userProfile.about}".` : '';
-        systemInstruction += `
-
-### User Context
-${nameLine}
-${aboutLine}`;
+      let finalSystemInstruction = '';
+      if (systemInstructionOverride) {
+        finalSystemInstruction = systemInstructionOverride;
+      } else {
+        const userProfile = await this.client.getUserProfile(userId);
+        finalSystemInstruction = userProfile?.botPersonality
+          ? userProfile.botPersonality
+          : `You are a friendly and helpful AI assistant named "Kannan's AI".`;
+        
+        if (userProfile) {
+          const nameLine = userProfile.name ? `- The user's name is "${userProfile.name}".` : '';
+          const aboutLine = userProfile.about ? `- About the user: "${userProfile.about}".` : '';
+          finalSystemInstruction += `\n\n### User Context\n${nameLine}\n${aboutLine}`;
+        }
       }
 
-      const tools:Tool[]=webSearch?[{googleSearchRetrieval:{}as GoogleSearchRetrieval}]:[]
+      const tools: Tool[] = webSearch
+        ? [{ googleSearchRetrieval: {} as GoogleSearchRetrieval }]
+        : [];
 
-      const model=this.genAi.getGenerativeModel({
-        model:modelName,
-        generationConfig:{temperature},
+      const model = this.genAi.getGenerativeModel({
+        model: modelName,
+        generationConfig: { temperature },
         tools,
-        systemInstruction
-      })
+        systemInstruction: finalSystemInstruction, // Use the final chosen instruction
+      });
 
-      const chat=model.startChat({history})
-      const result=await chat.sendMessageStream(prompt)
+      const chat = model.startChat({ history });
+      const result = await chat.sendMessageStream(prompt);
 
-      for await (const chunk of result.stream){
-        const text=chunk.text()
-        if(text){
-          yield text
+      for await (const chunk of result.stream) {
+        const text = chunk.text();
+        if (text) {
+          yield text;
         }
       }
     } catch (error) {
-       console.error('An error occurred in generateTextStream:', error);
+      console.error('An error occurred in generateTextStream:', error);
       yield 'Sorry, something went wrong while processing your request. Please try again.';
     }
   }
+
+  async generateAndUpload(prompt: string, userId: string): Promise<string> {
+    console.log(`Generating image for prompt: ${prompt}`);
+    const response = await this.imgAi.models.generateImages({
+      model: 'imagen-4.0-ultra-generate-001',
+      prompt,
+    });
+
+    const imgs = response.generatedImages;
+    if (!imgs?.length) {
+      throw new Error('no images returned from imagen api');
     }
-  
+    const first = imgs[0];
+    let base64Data: string;
+    if ('uri' in first && typeof first.uri === 'string') {
+      throw new Error('URI response not implemented - expected base64');
+    } else if (first.image && typeof first.image.imageBytes === 'string') {
+      base64Data = first.image.imageBytes;
+    } else {
+      throw new Error('Imagen response missing image data');
+    }
+    const cloudinaryUrl = await this.cloudinary.uploadBase64Image(base64Data, userId);
+    console.log(`image uploaded to s3: ${cloudinaryUrl}`);
+
+    return cloudinaryUrl;
+  }
+}

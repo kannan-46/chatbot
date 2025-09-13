@@ -9,6 +9,8 @@ import {
   Param,
   Logger,
   Res,
+  Put,
+  Delete
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ChatService } from './chat.service';
@@ -24,6 +26,12 @@ class ChatPromptDto {
   model: string;
   webSearch: boolean;
   temperature: number;
+  chatId:string
+  systemInstruction:string
+}
+
+class createChatDto{
+  title?:string
 }
 
 @Controller('chat')
@@ -35,6 +43,8 @@ export class ChatController {
     private readonly dynamoDbService: DynamoService,
   ) {}
 
+
+  // MESSAGE OPERATIONS
   @Post('stream')
   @UseGuards(ClerkAuthGuard)
   async chatStream(
@@ -57,9 +67,11 @@ export class ChatController {
       const stream = this.chatService.generateStreamWithHistory(
         chatPromptDto.prompt,
         userId,
+        chatPromptDto.chatId,
         chatPromptDto.model,
         chatPromptDto.webSearch,
         chatPromptDto.temperature,
+        chatPromptDto.systemInstruction
       );
 
       let chunkCount = 0;
@@ -81,12 +93,85 @@ export class ChatController {
     }
   }
 
-  @Get('history/:userId')
+@Get(':chatId/history')
   @UseGuards(ClerkAuthGuard)
-  async getHistory(@Req() request: AuthenticatedRequest) {
+  async getChatHistory(
+    @Req() request: AuthenticatedRequest,
+    @Param('chatId') chatId: string,
+  ) {
     const userId = request.auth.userId;
-    const messages = await this.dynamoDbService.getMessagesByUserId(userId);
-    this.logger.log(`Retrieved ${messages.length} history items for user ${userId}`);
+    const messages = await this.dynamoDbService.getChatMessage(userId, chatId);
+    
+    this.logger.log(`Retrieved ${messages.length} messages for chat ${chatId}`);
     return { messages };
   }
+
+  //CHAT MANAGEMENT
+  @Post('create')
+  @UseGuards(ClerkAuthGuard)
+  async createChat(
+    @Req() request:AuthenticatedRequest,
+    @Body() dto:createChatDto
+  ){
+    const userId=request.auth.userId
+    console.log(`creating new chat for user`);
+    
+    const chat=await this.chatService.createNewChat(
+      userId,
+      dto.title
+    )
+    return {success:true,chat}
+  }
+
+  @Get('list')
+  @UseGuards(ClerkAuthGuard)
+  async getUserChats(
+    @Req()request:AuthenticatedRequest
+  ){
+    const userId=request.auth.userId
+    const chats=await this.dynamoDbService.getUserChats(userId)
+    console.log(`retrieved ${chats.length} for user: ${userId}`);
+    return {chats}
+  }
+
+  @Get(':chatId')
+  @UseGuards(ClerkAuthGuard)
+  async getChat(
+    @Req() request: AuthenticatedRequest,
+    @Param('chatId') chatId: string,
+  ) {
+    const userId = request.auth.userId;
+    const chat = await this.dynamoDbService.getChat(userId, chatId);
+    
+    if (!chat) {
+      return { error: 'Chat not found' };
+    }
+    
+    return { chat };
+  }
+
+  @Put(':chatId/title')
+  @UseGuards(ClerkAuthGuard)
+  async updateChatTitle(
+    @Req() request: AuthenticatedRequest,
+    @Param('chatId') chatId: string,
+    @Body() { title }: { title: string },
+  ) {
+    const userId = request.auth.userId;
+    await this.dynamoDbService.updateChatTitle(userId, chatId, title);
+    
+    return { success: true, message: 'Chat title updated' };
+  }
+
+  @Delete(':chatId')
+  @UseGuards(ClerkAuthGuard)
+  async deleteChat(
+    @Req() request: AuthenticatedRequest,
+    @Param('chatId') chatId: string,
+  ) {
+    const userId = request.auth.userId;
+    await this.dynamoDbService.deleteChat(userId, chatId);
+    
+    return { success: true, message: 'Chat deleted' };
+  }  
 }
