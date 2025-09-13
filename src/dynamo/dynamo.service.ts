@@ -61,7 +61,7 @@ export class DynamoService {
 
   async createChat(
     userId: string,
-    title = 'new chat',
+    title :string | 'New Chat',
   ): Promise<Chat> {
     const chatId = uuid();
     const now = new Date().toISOString();

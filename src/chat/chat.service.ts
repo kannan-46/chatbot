@@ -13,7 +13,7 @@ export class ChatService {
     private readonly gemini: GeminiService,
   ) {}
 
-  async createNewChat(userId: string, title?: string) {
+  async createNewChat(userId: string, title: string) {
     console.log(
       `creating new chat for user ${userId}`,
     );
