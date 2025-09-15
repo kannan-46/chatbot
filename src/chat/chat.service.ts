@@ -67,7 +67,12 @@ export class ChatService {
         console.log(`Saved assistant response to database`);
 
         if (isFirstMessage) {
-          await this.autoGenerateChatTitle(userId, chatId, prompt);
+          await this.autoGenerateChatTitle(
+            userId,
+            chatId,
+            prompt,
+            systemInstruction,
+          );
         }
       }
     } catch (error) {
@@ -80,11 +85,33 @@ export class ChatService {
     userId: string,
     chatId: string,
     firstMessage: string,
+    personaOrSystem?: string,
   ) {
     try {
-      const titlePrompt = `Generate a very short, concise title (3-5 words max) for a conversation that starts with this message: "${firstMessage}"`;
+      const history = await this.client.getChatMessage(userId, chatId);
+      const firstAssisstant =
+        history.find((m) => m.role === 'model')?.content || '';
+      const prompt = `
+You are generating a very short chat title (3–5 words, no quotes or emojis). 
+Use the bot persona if provided and the first user + assistant messages to infer topic. 
+If the user only greeted (e.g., "hi", "hello"), produce a persona-flavored greeting title like:
+- "Astro Greeting" for an astrologer persona
+- "Coder Hello" for a developer persona
+- Otherwise "Chat Greeting".
+
+Persona (optional):
+${personaOrSystem || '(none)'}
+
+First user message:
+"${firstMessage}"
+
+First assistant reply:
+"${firstAssisstant}"
+
+Return only the title text, 3–5 words, Title Case, no punctuation, no quotes, no emojis.
+`.trim();
       const titleStream = this.gemini.generateTextStream(
-        titlePrompt,
+        prompt,
         [],
         'gemini-1.5-flash-latest',
         0.3,
