@@ -1,3 +1,4 @@
+// src/dynamo/dynamo.service.ts
 import { Injectable } from '@nestjs/common';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
@@ -23,6 +24,7 @@ export interface Chat {
   createdAt: string;
   lastMessageAt: string;
   messageCount: number;
+  itemType?: 'CHAT';
 }
 
 export interface chatMessage {
@@ -30,7 +32,9 @@ export interface chatMessage {
   role: 'user' | 'model';
   content: string;
   timeStamp: string;
+  itemType?: 'MSG';
 }
+
 export interface Gpt {
   gptId: string;
   creatorId: string;
@@ -41,6 +45,7 @@ export interface Gpt {
   createdAt: string;
   isPublic: boolean;
 }
+
 @Injectable()
 export class DynamoService {
   private readonly client: DynamoDBDocumentClient;
@@ -57,11 +62,11 @@ export class DynamoService {
     this.client = DynamoDBDocumentClient.from(client);
   }
 
-  //CHAT
+  // CHAT
 
   async createChat(
     userId: string,
-    title :string | 'New Chat',
+    title: string | 'New Chat',
   ): Promise<Chat> {
     const chatId = uuid();
     const now = new Date().toISOString();
@@ -72,6 +77,7 @@ export class DynamoService {
       createdAt: now,
       lastMessageAt: now,
       messageCount: 0,
+      itemType: 'CHAT',
     };
 
     await this.client.send(
@@ -92,12 +98,16 @@ export class DynamoService {
     const result = await this.client.send(
       new QueryCommand({
         TableName: this.messageTableName,
-        KeyConditionExpression: 'PK=:pk AND begins_with(SK, :sk)',
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
         ExpressionAttributeValues: {
           ':pk': userId,
-          ':sk': `CHAT#`,
+          ':sk': 'CHAT#',
+          ':chat': 'CHAT',
         },
-        FilterExpression: 'attribute_exists(chatId)',
+        ExpressionAttributeNames: {
+          '#type': 'itemType',
+        },
+        FilterExpression: '#type = :chat',
       }),
     );
 
@@ -131,7 +141,7 @@ export class DynamoService {
           PK: userId,
           SK: `CHAT#${chatId}`,
         },
-        UpdateExpression: 'SET title=:title,lastMessageAt=:now',
+        UpdateExpression: 'SET title = :title, lastMessageAt = :now',
         ExpressionAttributeValues: {
           ':title': newTitle,
           ':now': new Date().toISOString(),
@@ -141,7 +151,7 @@ export class DynamoService {
   }
 
   async deleteChat(userId: string, chatId: string) {
-    const result = await this.client.send(
+    await this.client.send(
       new DeleteCommand({
         TableName: this.messageTableName,
         Key: {
@@ -152,7 +162,7 @@ export class DynamoService {
     );
   }
 
-  //GPTS
+//GPTS
   async createGpt(
     creatorId: string,
     name: string,
@@ -175,20 +185,21 @@ export class DynamoService {
       createdAt: now,
     };
 
-    const itemToPut:any={
-      PK:`GPT#${gptId}`,
-      SK:`METADATA`,
-      ...gpt
+    const itemToPut: any = {
+      PK: `GPT#${gptId}`,
+      SK: `METADATA`,
+      ...gpt,
+    };
+
+    if (isPublic) {
+      itemToPut.GSI1PK = 'PUBLIC_GPTS';
+      itemToPut.GSI1SK = now;
     }
 
-    if(isPublic){
-      itemToPut.GSI1PK='PUBLIC_GPTS'
-      itemToPut.GSI1SK=now
-    }
     await this.client.send(
       new PutCommand({
         TableName: this.messageTableName,
-        Item:itemToPut
+        Item: itemToPut,
       }),
     );
     return gpt;
@@ -214,15 +225,14 @@ export class DynamoService {
         IndexName: 'GSI1',
         KeyConditionExpression: 'GSI1PK = :pk',
         ExpressionAttributeValues: {
-          ':pk':'PUBLIC_GPTS'
+          ':pk': 'PUBLIC_GPTS',
         },
       }),
     );
-    return (result.Items as Gpt[]) || null;
+    return (result.Items as Gpt[]) || [];
   }
 
-  //MESSAGES
-
+//MESSAGES
   async saveChatMessage(
     userId: string,
     chatId: string,
@@ -230,7 +240,13 @@ export class DynamoService {
     content: string,
   ) {
     const now = new Date().toISOString();
-    const message: chatMessage = { chatId, role, content, timeStamp: now };
+    const message: chatMessage = {
+      chatId,
+      role,
+      content,
+      timeStamp: now,
+      itemType: 'MSG',
+    };
 
     await this.client.send(
       new PutCommand({
@@ -250,7 +266,7 @@ export class DynamoService {
           PK: userId,
           SK: `CHAT#${chatId}`,
         },
-        UpdateExpression: 'SET lastMessageAt=:now ADD messageCount :inc',
+        UpdateExpression: 'SET lastMessageAt = :now ADD messageCount :inc',
         ExpressionAttributeValues: {
           ':now': now,
           ':inc': 1,
@@ -263,7 +279,7 @@ export class DynamoService {
     const result = await this.client.send(
       new QueryCommand({
         TableName: this.messageTableName,
-        KeyConditionExpression: 'PK=:pk AND begins_with(SK, :sk)',
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
         ExpressionAttributeValues: {
           ':pk': userId,
           ':sk': `CHAT#${chatId}#MSG#`,
@@ -278,8 +294,7 @@ export class DynamoService {
     );
   }
 
-  // USER PROFILE
-
+//PROFILE
   async saveUserProfile(userId: string, profile: userProfile): Promise<void> {
     const command = new PutCommand({
       TableName: this.messageTableName,
