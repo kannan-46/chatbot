@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { DynamoService } from 'src/dynamo/dynamo.service';
+import { DynamoService, Gpt } from 'src/dynamo/dynamo.service';
 import { GeminiService } from 'src/gemini/gemini.service';
+
+class CreateGptDto {
+  name: string;
+  description: string;
+  avatarPrompt: string;
+  persona: string;
+  isPublic: boolean;
+}
 
 @Injectable()
 export class GptsService {
@@ -9,7 +17,7 @@ export class GptsService {
     private readonly gemini: GeminiService,
   ) {}
 
-  async createGpt(userId: string, gptData: any) {
+  async createGpt(userId: string, gptData: CreateGptDto): Promise<Gpt> {
     const { name, description, avatarPrompt, persona, isPublic } = gptData;
     const avatarUrl = await this.gemini.generateAndUpload(avatarPrompt, userId);
 
@@ -23,12 +31,12 @@ export class GptsService {
     );
   }
 
-  async getGpt(gptId:string){
-    return this.client.getGpt(gptId)
+  async getGpt(gptId:string): Promise<Gpt | null> {
+    return this.client.getGpt(gptId);
   }
 
-  async getPublicGpt(){
-    return this.client.getPublicGpts()
+  async getPublicGpts(): Promise<Gpt[]> {
+    return this.client.getPublicGpts();
   }
 
   async *generateGptStream(
@@ -45,6 +53,6 @@ export class GptsService {
         userId,
         false,
         systemInstruction
-    )
+    );
   }
 }

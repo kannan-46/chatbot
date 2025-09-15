@@ -84,7 +84,7 @@ export class GptsController {
 
   @Get('list')
   async getPublicGpts() {
-    const gpts = await this.gptsService.getPublicGpt();
+    const gpts = await this.gptsService.getPublicGpts();
     return { gpts };
   }
 

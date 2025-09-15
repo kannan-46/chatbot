@@ -1,28 +1,19 @@
-// src/chat/chat.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Content } from '@google/generative-ai';
 import { DynamoService } from 'src/dynamo/dynamo.service';
 import { GeminiService } from 'src/gemini/gemini.service';
 
 @Injectable()
 export class ChatService {
-  private readonly logger = new Logger(ChatService.name);
-
   constructor(
     private readonly client: DynamoService,
     private readonly gemini: GeminiService,
   ) {}
 
-  async createNewChat(userId: string, title: string) {
-    console.log(
-      `creating new chat for user ${userId}`,
-    );
-      const chat = await this.client.createChat(
-        userId,
-        title || 'new chat',
-      );
-      this.logger.log(`Created chat ${chat.chatId} with default avatar`);
-      return chat;
+  async createNewChat(userId: string, title?: string) {
+    const chat = await this.client.createChat(userId, title || 'New Chat');
+    console.log(`Created chat ${chat.chatId}`);
+    return chat;
   }
 
   async *generateStreamWithHistory(
@@ -32,46 +23,37 @@ export class ChatService {
     model: string,
     webSearch = false,
     temperature = 0.7,
-    systemInstruction?:string
+    systemInstruction?: string,
   ): AsyncGenerator<string> {
     try {
-      this.logger.log(
-        `Processing request for user ${userId} | model: ${model} | webSearch: ${webSearch} | temp: ${temperature}`,
-      );
       const chatMessages = await this.client.getChatMessage(userId, chatId);
-      console.log(`Retrieved ${chatMessages.length} for chatId: ${chatId}`);
+      console.log(
+        `Retrieved ${chatMessages.length} messages for chatId: ${chatId}`,
+      );
 
-      const recentHistory = chatMessages.slice(-20);
-      const history: Content[] = recentHistory.map((item) => ({
+      const isFirstMessage = chatMessages.length === 0;
+
+      const history: Content[] = chatMessages.slice(-20).map((item) => ({
         role: item.role as 'user' | 'model',
         parts: [{ text: item.content }],
       }));
 
-      const updatedHistory: Content[] = [
-        ...history,
-        { role: 'user', parts: [{ text: prompt }] },
-      ];
-
-      // Save user prompt
       await this.client.saveChatMessage(userId, chatId, 'user', prompt);
-      this.logger.log(`Saved user message to database`);
+      console.log(`Saved user message to database`);
 
       const stream = this.gemini.generateTextStream(
         prompt,
-        updatedHistory,
+        history,
         model,
         temperature,
         userId,
         webSearch,
-        systemInstruction
+        systemInstruction,
       );
 
       let fullResponse = '';
-      let chunkCount = 0;
-
       for await (const chunk of stream) {
         fullResponse += chunk;
-        chunkCount++;
         yield chunk;
       }
 
@@ -82,15 +64,14 @@ export class ChatService {
           'model',
           fullResponse.trim(),
         );
-        this.logger.log(
-          `Saved assistant response to database (${fullResponse.length} chars, ${chunkCount} chunks)`,
-        );
-        const currentMessage=chatMessages.length + 2
+        console.log(`Saved assistant response to database`);
 
-        await this.autoGenerateChatTitle(userId,chatId,prompt,currentMessage)
+        if (isFirstMessage) {
+          await this.autoGenerateChatTitle(userId, chatId, prompt);
+        }
       }
     } catch (error) {
-      this.logger.error('Stream generation error:', error);
+      console.error('Stream generation error:', error);
       yield `Error: ${error.message}`;
     }
   }
@@ -99,13 +80,9 @@ export class ChatService {
     userId: string,
     chatId: string,
     firstMessage: string,
-    messageCount: number,
   ) {
-    if (messageCount !== 1) return; 
-
     try {
-      const titlePrompt = `Generate a short 2-4 word title for this conversation: "${firstMessage}"`;
-
+      const titlePrompt = `Generate a very short, concise title (3-5 words max) for a conversation that starts with this message: "${firstMessage}"`;
       const titleStream = this.gemini.generateTextStream(
         titlePrompt,
         [],
@@ -122,17 +99,15 @@ export class ChatService {
 
       const cleanTitle = generatedTitle
         .trim()
-        .replace(/['"]/g, '')
-        .substring(0, 30);
+        .replace(/['"*]/g, '')
+        .substring(0, 50);
 
       if (cleanTitle) {
         await this.client.updateChatTitle(userId, chatId, cleanTitle);
-        this.logger.log(
-          `Auto-generated title for chat ${chatId}: ${cleanTitle}`,
-        );
+        console.log(`Auto-generated title for chat ${chatId}: ${cleanTitle}`);
       }
     } catch (error) {
-      this.logger.error('Failed to generate chat title:', error);
+      console.error('Failed to generate chat title:', error);
     }
   }
 }

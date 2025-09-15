@@ -31,7 +31,7 @@ class ChatPromptDto {
 }
 
 class createChatDto{
-  title?:string
+  title:string
 }
 
 @Controller('chat')
