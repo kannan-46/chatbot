@@ -31,13 +31,18 @@ export class GptsService {
     );
   }
 
-  async getGpt(gptId:string): Promise<Gpt | null> {
-    return this.client.getGpt(gptId);
+  async getGpt(userId:string,gptId:string): Promise<Gpt | null> {
+    return this.client.getGpt(userId,gptId);
   }
 
   async getPublicGpts(): Promise<Gpt[]> {
     return this.client.getPublicGpts();
   }
+  
+  async getUserGpts(userId: string): Promise<Gpt[]> {
+  return this.client.getUserGpts(userId);
+}
+
 
   async *generateGptStream(
     userId:string,

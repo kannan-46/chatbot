@@ -82,21 +82,27 @@ export class GptsController {
     return { success: true, gpt };
   }
 
-  @Get('list')
+  @Get('public/list')
   async getPublicGpts() {
     const gpts = await this.gptsService.getPublicGpts();
+    return { gpts };
+  }
+  @Get('my')
+  @UseGuards(ClerkAuthGuard)
+  async getMyGpts(@Req() request: AuthenticatedRequest) {
+    const userId = request.auth.userId;
+    const gpts = await this.gptsService.getUserGpts(userId);
     return { gpts };
   }
 
   @Get(':gptId')
   @UseGuards(ClerkAuthGuard)
-  async getGpt(@Param('gptId') gptId: string) {
-    const gpt = await this.gptsService.getGpt(gptId);
+  async getGpt(
+    @Req() request: AuthenticatedRequest,
+    @Param('gptId') gptId: string,
+  ) {
+    const userId = request.auth.userId;
+    const gpt = await this.gptsService.getGpt(userId, gptId);
     return { gpt };
   }
 }
-
-
-
-
-  

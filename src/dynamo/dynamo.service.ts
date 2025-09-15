@@ -64,10 +64,7 @@ export class DynamoService {
 
   // CHAT
 
-  async createChat(
-    userId: string,
-    title: string | 'New Chat',
-  ): Promise<Chat> {
+  async createChat(userId: string, title: string | 'New Chat'): Promise<Chat> {
     const chatId = uuid();
     const now = new Date().toISOString();
 
@@ -162,7 +159,7 @@ export class DynamoService {
     );
   }
 
-//GPTS
+  //GPTS
   async createGpt(
     creatorId: string,
     name: string,
@@ -186,8 +183,8 @@ export class DynamoService {
     };
 
     const itemToPut: any = {
-      PK: `GPT#${gptId}`,
-      SK: `METADATA`,
+      PK: `USER#${creatorId}`,
+      SK: `GPT#${gptId}`,
       ...gpt,
     };
 
@@ -205,13 +202,27 @@ export class DynamoService {
     return gpt;
   }
 
-  async getGpt(gptId: string): Promise<Gpt | null> {
+  async getUserGpts(userId: string): Promise<Gpt[]> {
+    const result = await this.client.send(
+      new QueryCommand({
+        TableName: this.messageTableName,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+        ExpressionAttributeValues: {
+          ':pk': `USER#${userId}`,
+          ':sk': `GPT#`,
+        },
+      }),
+    );
+    return (result.Items as Gpt[]) || [];
+  }
+
+  async getGpt(userId: string, gptId: string): Promise<Gpt | null> {
     const result = await this.client.send(
       new GetCommand({
         TableName: this.messageTableName,
         Key: {
-          PK: `GPT#${gptId}`,
-          SK: `METADATA`,
+          PK: `USER#${userId}`,
+          SK: `GPT#${gptId}`,
         },
       }),
     );
@@ -232,7 +243,7 @@ export class DynamoService {
     return (result.Items as Gpt[]) || [];
   }
 
-//MESSAGES
+  //MESSAGES
   async saveChatMessage(
     userId: string,
     chatId: string,
@@ -294,7 +305,6 @@ export class DynamoService {
     );
   }
 
-//PROFILE
   async saveUserProfile(userId: string, profile: userProfile): Promise<void> {
     const command = new PutCommand({
       TableName: this.messageTableName,
